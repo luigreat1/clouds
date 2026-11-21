@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лаборатория погоды Луи</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden}
+  body{
+    background:linear-gradient(180deg,#1a2b4d 0%,#35568a 60%,#5b7fae 100%);
+    display:flex;align-items:center;justify-content:center;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  #dim{position:fixed;inset:0;background:#02040a;opacity:0;pointer-events:none;z-index:0}
+  #sunglow{position:fixed;inset:0;opacity:0;pointer-events:none;z-index:0;
+    background:radial-gradient(circle at 50% 25%,#ffd77a 0%,rgba(255,215,122,0) 70%)}
+
+  #stage{position:relative;z-index:1;--u:1;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+
+  /* Слои (снизу вверх):
+     .hit (кликабельные зоны) — на заднем плане, под картинкой
+     #scene — картинка + «открытое горлышко» (mouth), нарисованное прямо в ней
+     #fx — облака, дождь, молнии
+     .lidsp — летающая крышка */
+  .hit{position:absolute;z-index:1;cursor:pointer}
+  #scene{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+  #fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+  .lidsp{position:absolute;z-index:6;opacity:0;pointer-events:none;transform-origin:50% 55%;
+    filter:drop-shadow(0 4px 5px rgba(0,0,0,.5))}
+
+  .debug .hit{outline:1px dashed #6f6}
+  .dbg-r,.dbg-l{position:absolute;z-index:9;pointer-events:none}
+  .dbg-r{outline:1px dashed #0ff}.dbg-l{outline:1px dashed #f66}
+
+  /* карточка с названием облака — в пустом месте справа внизу */
+  #card{position:absolute;z-index:8;left:75.5%;top:51%;width:23%;box-sizing:border-box;
+    padding:calc(var(--u)*14px);border-radius:calc(var(--u)*14px);color:#fff;
+    background:rgba(10,20,40,.58);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,.18);box-shadow:0 10px 30px rgba(0,0,0,.35);
+    font-size:calc(var(--u)*13px);line-height:1.4;max-height:46%;overflow:auto;scrollbar-width:none}
+  #card::-webkit-scrollbar{display:none}
+  #card .row{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:calc(var(--u)*8px)}
+  #badge{padding:calc(var(--u)*3px) calc(var(--u)*10px);border-radius:999px;background:rgba(125,211,252,.25);
+    color:#bae6fd;font-size:calc(var(--u)*11px);text-transform:uppercase;letter-spacing:.04em}
+  #alt{font-size:calc(var(--u)*11px);opacity:.7}
+  #ctitle{font-size:calc(var(--u)*17px);font-weight:700;line-height:1.25;margin:0 0 calc(var(--u)*6px)}
+  #cdesc{margin:0 0 calc(var(--u)*10px);opacity:.9}
+  .facts{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*8px)}
+  .fact{background:rgba(255,255,255,.1);border-radius:calc(var(--u)*8px);padding:calc(var(--u)*6px) calc(var(--u)*8px)}
+  .fact small{display:block;opacity:.6;font-size:calc(var(--u)*10px)}
+  .fact b{font-weight:600}
+  #tags{display:flex;flex-wrap:wrap;gap:calc(var(--u)*5px);margin-top:calc(var(--u)*10px)}
+  #tags button{border:0;border-radius:8px;padding:calc(var(--u)*3px) calc(var(--u)*8px);cursor:pointer;
+    background:rgba(255,255,255,.16);color:#fff;font-size:calc(var(--u)*11px)}
+  #tags button:hover{background:rgba(255,255,255,.3)}
+
+  #bar{position:fixed;left:12px;top:12px;z-index:20;display:flex;gap:8px;align-items:center}
+  #bar button{border:0;border-radius:999px;height:38px;padding:0 14px;background:rgba(0,0,0,.4);color:#fff;
+    font-size:14px;cursor:pointer;backdrop-filter:blur(4px)}
+  #bar button:hover{background:rgba(0,0,0,.6)}
+  #cnt{color:#fff;background:rgba(0,0,0,.4);border-radius:999px;height:38px;line-height:38px;padding:0 14px;font-size:14px}
+  #hint{position:fixed;left:50%;top:62px;transform:translateX(-50%);z-index:20;color:#fff;
+    background:rgba(0,0,0,.4);padding:8px 16px;border-radius:999px;font-size:15px;
+    pointer-events:none;transition:opacity .6s;backdrop-filter:blur(4px);white-space:nowrap}
+  #tip{position:fixed;z-index:50;pointer-events:none;opacity:0;transition:opacity .15s;color:#fff;
+    background:rgba(15,23,42,.92);padding:6px 12px;border-radius:12px;font-size:13px;max-width:260px;
+    border:1px solid rgba(148,163,184,.35);box-shadow:0 4px 12px rgba(0,0,0,.4)}
+  #tip small{display:block;opacity:.65;margin-top:2px}
+  #warn{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:30;color:#fff;
+    background:rgba(120,20,20,.88);padding:16px 22px;border-radius:12px;max-width:80vw;text-align:center}
+  @media (max-width:700px){#hint{display:none}}
+   .background-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background-image: url('nature.png'); /* картинка рядом с index.html */
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+            padding: 40px;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.7);
+        }
+</style>
+</head>
+<body>
+<div id="dim"></div>
+<div id="sunglow"></div>
+ <div class="background-layer"></div>
+
+    <div class="content">
+        <p>Фон — nature.png</p>
+    </div>
+<div id="stage">
+  <canvas id="scene"></canvas>
+  <canvas id="fx"></canvas>
+  <div id="card">
+    <div class="row"><span id="badge">метеостанция готова</span><span id="alt">Высота: 0–12 км</span></div>
+    <h2 id="ctitle">Лаборатория облаков – выбери любую банку</h2>
+    <p id="cdesc">Инопланетянин Луи собрал в банки 11 образцов земной погоды. Нажми на любую крышку, чтобы увидеть,  что же оне передат на Терру-5!</p>
+    <div class="facts">
+      <div class="fact"><small>Температура</small><b id="ctemp">+18 °C (норма)</b></div>
+      <div class="fact"><small>Осадки и ветер</small><b id="cprec">штиль, без осадков</b></div>
+    </div>
+    <div id="tags"></div>
+  </div>
+</div>
+
+<div id="bar">
+  <button id="closeAll">🫙 Закрыть все</button>
+  <button id="snd">🔊 Звук</button>
+  <span id="cnt">открыто: 0 из 11</span>
+</div>
+<div id="hint">Нажми на банку – открутится крышка и вылетит облако. Нажми ещё раз — облако вернётся</div>
+<div id="tip"></div>
+<div id="warn" hidden></div>
+
+<script>
+/* ====== НАСТРОЙКИ ====== */
+const IMG_FULL  = 'lui_s.png';    // картинка с облаками в банках (1248×832)
+const IMG_EMPTY = 'lui_ss.png';   // картинка с пустыми банками (1248×832)
+const W0 = 1248, H0 = 832;        // опорный размер lui_s.png — в нём заданы все координаты
+
+/* Банки (порядок — от дальних к ближним).
+   body   — кликабельная зона [x, y, ширина, высота]
+   lid    — крышка на lui_s.png [центр x, центр y, ширина]
+   bLid   — та же крышка на lui_ss.png (нужна, чтобы совместить пустую банку с полной)
+   region — внутренность банки, которая заменяется на пустую [x0, y0, x1, y1]
+   fronts — id банок, которые стоят перед этой (их область не затирается)
+   Названия, высота, температура и описания взяты из «Лаборатории погоды Луи». */
+const JARS = [
+ {id:2, type:'overcast', short:'пасмурное небо',
+  name:'Слоисто-кучевые облака – пасмурная погода', badge:'нижний ярус облаков',
+  altitude:'Высота: 0,6–2 км', temp:'+11 °C (прохладно)', precip:'плотная облачность и морось',
+  desc:'Плотные серые грядушки закрывают небо сплошным покрывалом. Солнечные лучи почти не проходят сквозь них, но сильного ливня такие облака обычно не дают.',
+  body:[368,120,150,170], lid:[443,138,135], bLid:[443,138,135], region:[379,158,507,281], fronts:[4, 3],
+  pal:[[150,154,162],[100,104,112],[62,65,74]], R:90},
+ {id:1, type:'warmWind', short:'тёплый фронт',
+  name:'Кучевые облака тёплого фронта – солнечный ветер', badge:'тёплый атмосферный фронт',
+  altitude:'Высота: 2–4 км', temp:'+27 °C (прогрев)', precip:'тёплый порывистый ветер',
+  desc:'Тёплый воздух поднимается над холодным и окрашивается лучами заходящего солнца в золотисто-оранжевые тона. Приносит потепление и лёгкий порывистый ветер.',
+  body:[188,130,167,170], lid:[272,150,150], bLid:[272,150,150], region:[199,172,344,291], fronts:[3],
+  pal:[[255,205,140],[240,132,52],[140,62,26]], R:85},
+ {id:4, type:'sheep', short:'белые барашки',
+  name:'Высококучевые облака – переменная облачность', badge:'средний ярус облаков',
+  altitude:'Высота: 3–5 км', temp:'+19 °C (комфортно)', precip:'без осадков',
+  desc:'Белые и слегка сероватые хлопья, похожие на волнистые ряды барашков. Они образуются на средней высоте и чаще всего предвещают сухую, спокойную погоду.',
+  body:[468,185,150,160], lid:[545,205,134], bLid:[545,205,134], region:[479,225,607,336], fronts:[],
+  pal:[[232,235,240],[176,182,191],[124,130,140]], R:85},
+ {id:3, type:'rain', short:'затяжной дождь',
+  name:'Слоисто-дождевые облака – затяжной дождь', badge:'дождевой фронт',
+  altitude:'Высота: 0,5–3 км', temp:'+12 °C (влажно)', precip:'обложной косой дождь',
+  desc:'Тёмно-серые слоисто-дождевые облака состоят из крупных капель воды. Когда капли становятся слишком тяжёлыми, они падают на землю в виде ровного затяжного дождя.',
+  body:[303,225,155,135], lid:[381,245,138], bLid:[381,245,138], region:[314,265,447,351], fronts:[],
+  pal:[[142,147,156],[94,99,109],[56,60,70]], R:90},
+ {id:6, type:'showers', short:'грибной дождь',
+  name:'Дождевые кучевые облака – освежающий ливень', badge:'кратковременный дождь',
+  altitude:'Высота: 1,5–4 км', temp:'+15 °C (свежо)', precip:'звонкий дождь, брызги и радуга',
+  desc:'Голубовато-белые облака, насыщенные влагой. При столкновении с прохладным воздухом водяной пар быстро превращается в капли и проливается освежающим дождём — а потом выглядывает радуга.',
+  body:[122,538,163,210], lid:[207,563,150], bLid:[207,563,150], region:[133,585,274,739], fronts:[7],
+  pal:[[218,232,250],[152,184,224],[102,130,178]], R:85},
+ {id:8, type:'wind', short:'высокие облака',
+  name:'Перисто-кучевые облака – лёгкий бриз', badge:'верхний ярус облаков',
+  altitude:'Высота: 6–8 км', temp:'+17 °C (ясно)', precip:'слабый высотный ветер',
+  desc:'Тонкие высокие облака, состоящие из мельчайших ледяных кристалликов. Через них свободно проходят солнечные лучи.',
+  body:[413,500,160,210], lid:[493,523,140], bLid:[493,523,140], region:[424,544,562,701], fronts:[9],
+  pal:[[255,255,255],[236,240,246],[204,212,224]], R:80},
+ {id:10, type:'dustWind', short:'тёплый суховей',
+  name:'Закатные пыльно-тёплые облака – суховей', badge:'тёплый воздушный поток',
+  altitude:'Высота: 1–3 км', temp:'+29 °C (жарко)', precip:'тёплый ветер и золотистая дымка',
+  desc:'Тёплый воздух из южных широт несёт мелкую сухую взвесь и рассеивает солнечный свет, окрашивая облака в яркий янтарно-оранжевый цвет.',
+  body:[582,538,160,210], lid:[662,563,145], bLid:[662,563,145], region:[593,584,731,739], fronts:[9, 11],
+  pal:[[255,216,134],[238,142,50],[122,58,26]], R:90},
+ {id:7, type:'noon', short:'белоснежные клубы',
+  name:'Плотные кучевые облака – летний полдень', badge:'конвективные облака',
+  altitude:'Высота: 1,5–3 км', temp:'+24 °C (тепло)', precip:'без осадков',
+  desc:'Мощные белые клубы водяного пара, отражающие до 80% солнечного света. Именно поэтому сверху и сбоку они кажутся ослепительно белыми.',
+  body:[237,578,171,212], lid:[323,605,150], bLid:[323,605,150], region:[248,627,397,781], fronts:[],
+  pal:[[255,255,255],[240,243,248],[208,216,228]], R:85},
+ {id:9, type:'hail', short:'ледяной град',
+  name:'Переохлаждённые облака – ледяной град', badge:'опасное явление — град',
+  altitude:'Высота: 4–9 км', temp:'+8 °C (резкое похолодание)', precip:'прыгающие ледяные градины',
+  desc:'Внутри мощного холодного облака сильные восходящие потоки воздуха многократно подбрасывают капли воды вверх, где они замерзают и обрастают слоями льда, превращаясь в град!',
+  body:[462,610,168,195], lid:[546,638,148], bLid:[546,638,148], region:[473,660,619,796], fronts:[],
+  pal:[[236,245,253],[186,209,233],[138,165,200]], R:85},
+ {id:11, type:'storm', short:'гроза и молния',
+  name:'Кучево-дождевые облака – гроза и молния', badge:'грозовой разряд',
+  altitude:'Высота: 1–12 км', temp:'+14 °C (грозовой фронт)', precip:'ливень, гром и молнии',
+  desc:'Гигантская башня кучево-дождевого облака! При трении ледяных кристаллов и капель накапливается электрический заряд — возникает яркая молния, а нагретый воздух рождает раскат грома.',
+  body:[742,562,168,210], lid:[826,588,148], bLid:[826,588,148], region:[753,610,899,763], fronts:[],
+  pal:[[120,126,140],[66,70,84],[30,33,44]], R:100},
+ {id:5, type:'sun', short:'кучевые облака',
+  name:'Кучевые облака хорошей погоды – ясный день', badge:'любимое облако Луи',
+  altitude:'Высота: 1–2 км', temp:'+22 °C (солнечно)', precip:'лёгкий ветерок',
+  desc:'Пушистые белоснежные облака с плоским основанием и куполообразной вершиной. Появляются днём, когда тёплый воздух поднимается от нагретой солнцем земли.',
+  body:[1068,203,160,182], lid:[1153,223,140], bLid:[1153,223,140], region:[1079,244,1217,376], fronts:[],
+  pal:[[255,255,255],[240,244,250],[206,218,236]], R:80},
+];
+const byId=id=>JARS.find(j=>j.id===id);
+
+/* ====== УТИЛИТЫ ====== */
+const TAU=Math.PI*2;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const ease=t=>1-Math.pow(1-t,3);
+const rgba=(c,a)=>`rgba(${c[0]},${c[1]},${c[2]},${a})`;
+function rr(g,x,y,w,h,r){r=Math.min(r,w/2,h/2);g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+
+const stage=document.getElementById('stage');
+const scn=document.getElementById('scene'), sctx=scn.getContext('2d');
+const cv=document.getElementById('fx'), ctx=cv.getContext('2d');
+const dimEl=document.getElementById('dim'), sunEl=document.getElementById('sunglow');
+const hint=document.getElementById('hint'), warn=document.getElementById('warn'), tip=document.getElementById('tip');
+const DEBUG=location.search.includes('debug');
+if(DEBUG)document.body.classList.add('debug');
+
+let natW=W0, natH=H0, SW=W0, SH=H0, S=1, SY=1, DPR=1;
+function resize(){
+  const ratio=natW/natH;
+  const w=Math.min(innerWidth,innerHeight*ratio);
+  stage.style.width=w+'px'; stage.style.height=(w/ratio)+'px'; stage.style.setProperty('--u',w/W0);
+  SW=w; SH=w/ratio; S=SW/W0; SY=SH/H0; DPR=Math.min(window.devicePixelRatio||1,2);
+  for(const c of [cv,scn]){c.width=Math.round(SW*DPR);c.height=Math.round(SH*DPR);}
+  ctx.setTransform(DPR,0,0,DPR,0,0); sctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize); resize();
+
+/* ====== ЗВУК ====== */
+let AC=null, muted=false;
+function ac(){ if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}} if(AC&&AC.state==='suspended')AC.resume(); return AC; }
+function noiseBurst(dur,freq,vol){
+  const a=ac(); if(!a||muted)return;
+  const n=Math.floor(a.sampleRate*dur), buf=a.createBuffer(1,n,a.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2);
+  const s=a.createBufferSource(); s.buffer=buf;
+  const f=a.createBiquadFilter(); f.type='lowpass'; f.frequency.value=freq;
+  const g=a.createGain(); g.gain.value=vol; s.connect(f); f.connect(g); g.connect(a.destination); s.start();
+}
+function tone(f0,f1,dur,vol,type){
+  const a=ac(); if(!a||muted)return;
+  const o=a.createOscillator(), g=a.createGain(), t=a.currentTime;
+  o.type=type||'sine'; o.frequency.setValueAtTime(f0,t); o.frequency.exponentialRampToValueAtTime(f1,t+dur*.8);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+dur);
+  o.connect(g); g.connect(a.destination); o.start(); o.stop(t+dur+.01);
+}
+const popSnd=()=>tone(420,120,.15,.25), lidSnd=o=>tone(o?320:520,o?680:240,.18,.18,'triangle');
+const thunder=()=>noiseBurst(1.8,320,.9), hailTick=()=>tone(1400+Math.random()*800,1200,.03,.02);
+document.getElementById('snd').onclick=e=>{muted=!muted;e.target.textContent=muted?'🔇 Звук':'🔊 Звук'};
+
+/* ====== СОСТОЯНИЕ ====== */
+const P=[], B=[], clouds=[];
+let flash=0, flashCol='255,255,255', shake=0, DT=.016;
+const room=()=>P.length<2600;
+
+/* ====== ПОГОДА: ЧАСТИЦЫ ====== */
+function spawnRain(c,heavy,drizzle){
+  if(!room())return;
+  const x=c.x+rnd(-.85,.85)*c.RR, y=c.y+c.RR*.3;
+  P.push({k:'rain',x,y,vx:-S*(heavy?130:drizzle?30:70),vy:S*rnd(drizzle?420:650,drizzle?600:1000)*(heavy?1.15:1),
+    gy:SH*rnd(.82,.99),len:.03,col:heavy?'200,215,255':drizzle?'210,230,255':'185,210,240',w:heavy?1.8:drizzle?1.1:1.4});
+}
+function spawnHail(c){
+  if(!room())return;
+  P.push({k:'hail',x:c.x+rnd(-.85,.85)*c.RR,y:c.y+c.RR*.3,vx:rnd(-40,40)*S,vy:rnd(300,500)*S,
+    r:rnd(3,5.5)*S,gy:SH*rnd(.84,.99),b:0,lie:0});
+}
+function spawnFog(c,col,A){
+  if(!room())return;
+  if(P.filter(p=>p.k==='fog').length>50)return;
+  P.push({k:'fog',x:c.x+rnd(-.9,.9)*c.RR,y:c.y+c.RR*.4,vx:rnd(30,80)*S,vy:rnd(8,28)*S,
+    r:rnd(70,150)*S,t:0,life:rnd(5,9),A:A||rnd(.10,.2),col:col||'225,236,245'});
+}
+const LEAF_COLS=['#e8a23a','#c8561f','#7bb34a','#d9c14a'];
+function streak(c,col,w){
+  P.push({k:'wind',x:c.x-c.RR*.5,y0:rnd(c.y,SH*.9),vx:rnd(500,900)*S,ph:rnd(0,TAU),amp:rnd(8,28)*S,fq:rnd(2,4),
+    trail:[],len:(rnd(12,20))|0,col:col,w:w||2});
+}
+function dust(c,col){
+  P.push({k:'dust',x:c.x-c.RR*.3,y0:rnd(c.y,SH*.9),vx:rnd(220,520)*S,ph:rnd(0,TAU),amp:rnd(6,22)*S,
+    r:rnd(1,2.6)*S,col:col,t:0});
+}
+function spawnWind(c){
+  if(!room())return;
+  if(Math.random()<.65)streak(c,'255,255,255');
+  else P.push({k:'leaf',x:c.x-c.RR*.4,y0:rnd(c.y,SH*.85),vx:rnd(300,620)*S,ph:rnd(0,TAU),amp:rnd(20,60)*S,
+    rot:rnd(0,TAU),sp:rnd(-8,8),sz:rnd(5,9)*S,col:LEAF_COLS[(Math.random()*4)|0],t:0,sink:rnd(10,40)*S});
+}
+function spawnWarmWind(c){
+  if(!room())return;
+  if(Math.random()<.5)streak(c,'255,165,80'); else dust(c,'255,200,120');
+  if(Math.random()<.2)P.push({k:'tw',x:clamp(c.x+rnd(-3,3)*c.RR,10,SW-10),y:rnd(c.y,SH*.9),t:0,life:rnd(1,2),s:rnd(3,6)*S});
+}
+function spawnDustWind(c){
+  if(!room())return;
+  const r=Math.random();
+  if(r<.3)streak(c,'240,175,95',2.4); else if(r<.8)dust(c,'226,165,96'); else spawnFog(c,'235,185,110',rnd(.12,.22));
+}
+function spawnTwinkle(c){
+  if(!room())return;
+  P.push({k:'tw',x:clamp(c.x+rnd(-3,3)*c.RR,10,SW-10),y:rnd(c.y,SH*.95),t:0,life:rnd(1,2.2),s:rnd(3,7)*S});
+}
+/* плывущие по небу облака (для пасмурной/переменной/полуденной погоды) */
+function pushDrift(c,x,y,R,vx,pal,a){ if(P.length<2600)P.push({k:'drift',x,y,R,vx,pal,a,t:rnd(0,9),age:0,owner:c}); }
+const mkSheep=(c,i)=>pushDrift(c,i?rnd(0,SW):-80*S,SH*rnd(.05,.32),rnd(26,42)*S,rnd(14,26)*S,[[255,255,255],[236,242,250],[205,218,236]],.85);
+const mkNoon =(c,i)=>pushDrift(c,i?rnd(0,SW):-140*S,SH*rnd(.06,.3),rnd(55,85)*S,rnd(8,16)*S,[[255,255,255],[248,250,253],[220,230,242]],.95);
+const mkGray =(c,i)=>pushDrift(c,i?rnd(0,SW):-200*S,SH*rnd(.03,.22),rnd(70,110)*S,rnd(14,28)*S,[[150,154,162],[104,108,116],[66,70,80]],.82);
+function driftTick(c,dt,em,o){
+  if(em<=0)return;
+  if(!c.inited){c.inited=true;for(let i=0;i<o.n;i++)o.mk(c,true);}
+  c.da=(c.da||0)+dt*o.rate*em;
+  while(c.da>=1){c.da-=1;o.mk(c,false);}
+}
+
+/* молния */
+function makeBolt(c){
+  const x0=c.x+rnd(-.5,.5)*c.RR, y0=c.y+c.RR*.3;
+  const x1=clamp(x0+rnd(-.25,.25)*SW,20,SW-20), y1=SH*rnd(.78,.98);
+  const pts=[[x0,y0]], branches=[], n=14;
+  for(let i=1;i<=n;i++){
+    const f=i/n, x=lerp(x0,x1,f)+(i<n?rnd(-1,1)*38*S:0), y=lerp(y0,y1,f)+rnd(-.5,.5)*14*S;
+    pts.push([x,y]);
+    if(i>2&&i<n-1&&Math.random()<.22){
+      const b=[[x,y]]; let bx=x,by=y; const dir=Math.random()<.5?-1:1;
+      for(let k=0;k<5;k++){bx+=dir*rnd(10,34)*S;by+=rnd(14,40)*S;b.push([bx,by]);}
+      branches.push(b);
+    }
+  }
+  B.push({pts,branches,t:0,life:.45});
+  for(let i=0;i<14;i++){const a=rnd(Math.PI,TAU),sp=rnd(80,320)*S;
+    P.push({k:'spark',x:x1,y:y1,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,t:0,life:rnd(.3,.7),r:rnd(1.2,2.4)*S});}
+  flash=Math.max(flash,.55); flashCol='235,240,255'; c.glow=1; shake=Math.max(shake,.12); thunder();
+}
+function stormTick(c,dt,em){
+  if(em<1)return;
+  c.nb=(c.nb===undefined?.8:c.nb)-dt;
+  if(c.nb<=0){makeBolt(c);c.nb=Math.random()<.3?rnd(.1,.25):rnd(.9,2.6);}
+}
+
+/* ====== ФОНОВЫЕ ЭФФЕКТЫ (солнце, радуга) ====== */
+function sunBg(c){
+  const e=c.e; if(e<=.01)return;
+  const sx=c.x+c.RR*.55, sy=c.y-c.RR*.35, sr=c.RR*.62*e;
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  let g=ctx.createLinearGradient(0,sy,0,SH);
+  g.addColorStop(0,`rgba(255,225,140,${.28*e})`); g.addColorStop(1,'rgba(255,225,140,0)');
+  ctx.fillStyle=g; ctx.beginPath();
+  ctx.moveTo(sx-sr*.5,sy); ctx.lineTo(sx+sr*.5,sy); ctx.lineTo(sx+SW*.28,SH); ctx.lineTo(sx-SW*.38,SH); ctx.closePath(); ctx.fill();
+  g=ctx.createRadialGradient(sx,sy,sr*.3,sx,sy,sr*3);
+  g.addColorStop(0,`rgba(255,235,150,${.7*e})`); g.addColorStop(1,'rgba(255,200,80,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(sx,sy,sr*3,0,TAU); ctx.fill();
+  ctx.restore();
+  ctx.save(); ctx.translate(sx,sy); ctx.rotate(c.t*.25);
+  ctx.strokeStyle=`rgba(255,220,100,${.8*e})`; ctx.lineCap='round'; ctx.lineWidth=5*S;
+  for(let i=0;i<14;i++){ctx.rotate(TAU/14);ctx.beginPath();ctx.moveTo(sr*1.25,0);ctx.lineTo(sr*(1.55+.15*Math.sin(c.t*3+i)),0);ctx.stroke();}
+  ctx.restore();
+  const dg=ctx.createRadialGradient(sx-sr*.3,sy-sr*.3,sr*.1,sx,sy,sr);
+  dg.addColorStop(0,'#fff6b0'); dg.addColorStop(1,'#ffb92e');
+  ctx.save(); ctx.globalAlpha=Math.min(1,e*1.5); ctx.fillStyle=dg;
+  ctx.beginPath(); ctx.arc(sx,sy,sr,0,TAU); ctx.fill(); ctx.restore();
+}
+const RB_COLS=['#ff4d4d','#ff944d','#ffe14d','#6bdc5a','#4db8ff','#5a63ff','#a24dff'];
+function rainbowBg(c){
+  c.rb=clamp((c.rb||0)+(c.state==='active'?DT/2.5:-DT/1.2),0,1);
+  if(c.rb<=0)return;
+  const r0=Math.min(SW*.42,SH*.85), cx=c.x*.4+SW*.5*.6, cy=SH, bw=r0*.045;
+  ctx.save(); ctx.lineWidth=bw+1; ctx.lineCap='butt'; ctx.globalAlpha=.38;
+  RB_COLS.forEach((col,i)=>{ctx.strokeStyle=col;ctx.beginPath();ctx.arc(cx,cy,r0-i*bw,Math.PI,Math.PI+Math.PI*ease(c.rb));ctx.stroke();});
+  ctx.restore();
+}
+
+/* типы погоды */
+const EFFECTS={
+  warmWind:{rate:15,spawn:spawnWarmWind,sun:.45,glow:'255,140,40'},
+  overcast:{rate:30,spawn:c=>spawnRain(c,false,true),tick:(c,dt,em)=>driftTick(c,dt,em,{rate:.9,n:7,mk:mkGray}),dark:.28},
+  rain:    {rate:210,spawn:c=>spawnRain(c,false),dark:.14},
+  sheep:   {rate:0,spawn:()=>{},tick:(c,dt,em)=>driftTick(c,dt,em,{rate:1.5,n:9,mk:mkSheep})},
+  sun:     {rate:22,spawn:spawnTwinkle,bg:sunBg,sun:.5},
+  showers: {rate:120,spawn:c=>spawnRain(c,false),bg:rainbowBg,dark:.06},
+  noon:    {rate:4,spawn:spawnTwinkle,tick:(c,dt,em)=>driftTick(c,dt,em,{rate:.55,n:5,mk:mkNoon}),sun:.4},
+  wind:    {rate:6,spawn:spawnWind},
+  hail:    {rate:26,spawn:spawnHail,dark:.1},
+  dustWind:{rate:24,spawn:spawnDustWind,sun:.25,dark:.12,glow:'255,160,60'},
+  storm:   {rate:300,spawn:c=>spawnRain(c,true),tick:stormTick,dark:.3},
+};
+
+/* ====== ОБЛАКО ====== */
+const PUFFS=[[-.95,.10,.45,0],[-.5,.2,.5,1],[0,.25,.55,2],[.5,.2,.5,3],[.95,.1,.42,4],
+  [-.2,-.1,.55,5],[.25,-.1,.55,6],[-.55,-.25,.5,7],[.55,-.25,.5,8],[0,-.4,.62,9]];
+function drawPuffs(x,y,R,pal,a,t,st){
+  for(const p of PUFFS){
+    const wob=1+.06*Math.sin(t*1.3+p[3]);
+    const px=x+p[0]*R*wob*st, py=y+p[1]*R*.8+Math.sin(t*.8+p[3])*R*.03, pr=p[2]*R*wob;
+    const g=ctx.createRadialGradient(px-pr*.25,py-pr*.35,pr*.1,px,py,pr);
+    g.addColorStop(0,rgba(pal[0],a)); g.addColorStop(.55,rgba(pal[1],a));
+    g.addColorStop(.88,rgba(pal[2],a*.9)); g.addColorStop(1,rgba(pal[2],0));
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(px,py,pr,0,TAU); ctx.fill();
+  }
+}
+function drawCloud(c){
+  const cfg=c.cfg, a=c.state==='returning'?Math.min(1,c.k*6):1, R=c.RR, x=c.x, y=c.y;
+  if(a<=.01||R<2)return;
+  if(cfg.glow){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const g=ctx.createRadialGradient(x,y+R*.2,R*.2,x,y+R*.2,R*1.7);
+    g.addColorStop(0,`rgba(${cfg.glow},${.4*a})`); g.addColorStop(1,`rgba(${cfg.glow},0)`);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y+R*.2,R*1.7,0,TAU); ctx.fill(); ctx.restore();
+  }
+  drawPuffs(x,y,R,c.pal,a,c.t,1);
+  if(c.glow>.02){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const g=ctx.createRadialGradient(x,y,0,x,y,R*1.3);
+    g.addColorStop(0,`rgba(200,210,255,${c.glow*.6})`); g.addColorStop(1,'rgba(200,210,255,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,R*1.3,0,TAU); ctx.fill(); ctx.restore();
+  }
+}
+
+/* ====== ЧАСТИЦЫ: шаг и отрисовка ====== */
+function stepParticle(p,dt){
+  switch(p.k){
+    case 'rain':{
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      if(p.y>=p.gy){P.push({k:'splash',x:p.x,y:p.gy,t:0});return false;}
+      ctx.strokeStyle=`rgba(${p.col},.65)`; ctx.lineWidth=p.w*S+.3;
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*p.len,p.y-p.vy*p.len); ctx.stroke(); return true;}
+    case 'splash':{
+      p.t+=dt; if(p.t>=.28)return false;
+      const r=(p.t/.28)*7*S;
+      ctx.strokeStyle=`rgba(200,222,245,${1-p.t/.28})`; ctx.lineWidth=1.2*S+.2;
+      ctx.beginPath(); ctx.ellipse(p.x,p.y,r,r*.35,0,0,TAU); ctx.stroke(); return true;}
+    case 'hail':{
+      if(p.lie>0){p.lie+=dt;if(p.lie>1)return false;}
+      else{
+        p.vy+=1700*S*dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+        if(p.y>=p.gy){p.y=p.gy;
+          if(p.b>=2){p.lie=.001;p.vy=0;p.vx=0;}
+          else{p.vy=-p.vy*.42;p.vx*=.8;p.b++;if(Math.random()<.1)hailTick();}}
+      }
+      const a=p.lie>0?1-p.lie:1;
+      const g=ctx.createRadialGradient(p.x-p.r*.3,p.y-p.r*.3,0,p.x,p.y,p.r);
+      g.addColorStop(0,`rgba(255,255,255,${a})`); g.addColorStop(1,`rgba(170,200,230,${a})`);
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,TAU); ctx.fill(); return true;}
+    case 'spark':{
+      p.t+=dt; if(p.t>=p.life)return false;
+      p.vy+=700*S*dt; p.vx*=1-1.2*dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+      const r=p.t/p.life;
+      ctx.save(); ctx.globalCompositeOperation='lighter';
+      ctx.strokeStyle=`hsla(${50-r*40},100%,${70-r*20}%,${1-r})`; ctx.lineWidth=p.r; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*.03,p.y-p.vy*.03); ctx.stroke(); ctx.restore(); return true;}
+    case 'smoke':{
+      p.t+=dt; if(p.t>=p.life)return false;
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      const r=p.r+p.gr*p.t, a=p.a*(1-p.t/p.life);
+      const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
+      g.addColorStop(0,rgba(p.col,a)); g.addColorStop(1,rgba(p.col,0));
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r,0,TAU); ctx.fill(); return true;}
+    case 'fog':{
+      p.t+=dt; if(p.t>=p.life)return false;
+      p.x+=p.vx*dt; p.y+=p.vy*dt;
+      const a=p.A*Math.sin(Math.PI*p.t/p.life);
+      const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r);
+      g.addColorStop(0,`rgba(${p.col},${a})`); g.addColorStop(1,`rgba(${p.col},0)`);
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,TAU); ctx.fill(); return true;}
+    case 'wind':{
+      p.ph+=dt*p.fq; p.x+=p.vx*dt;
+      const y=p.y0+Math.sin(p.ph)*p.amp;
+      p.trail.push([p.x,y]); if(p.trail.length>p.len)p.trail.shift();
+      if(p.x>SW+300*S)return false;
+      ctx.lineWidth=p.w*S+.3; ctx.lineCap='round';
+      for(let i=1;i<p.trail.length;i++){
+        ctx.strokeStyle=`rgba(${p.col},${i/p.trail.length*.55})`;
+        ctx.beginPath(); ctx.moveTo(p.trail[i-1][0],p.trail[i-1][1]); ctx.lineTo(p.trail[i][0],p.trail[i][1]); ctx.stroke();
+      } return true;}
+    case 'dust':{
+      p.t+=dt; p.ph+=dt*3; p.x+=p.vx*dt;
+      if(p.x>SW+20)return false;
+      const y=p.y0+Math.sin(p.ph)*p.amp+p.t*6*S;
+      ctx.fillStyle=`rgba(${p.col},.75)`; ctx.beginPath(); ctx.arc(p.x,y,p.r,0,TAU); ctx.fill(); return true;}
+    case 'leaf':{
+      p.t+=dt; p.ph+=dt*2.2; p.x+=p.vx*dt; p.rot+=p.sp*dt;
+      const y=p.y0+Math.sin(p.ph)*p.amp+p.sink*p.t;
+      if(p.x>SW+40*S||y>SH+40)return false;
+      ctx.save(); ctx.translate(p.x,y); ctx.rotate(p.rot); ctx.fillStyle=p.col;
+      ctx.beginPath(); ctx.ellipse(0,0,p.sz,p.sz*.5,0,0,TAU); ctx.fill(); ctx.restore(); return true;}
+    case 'tw':{
+      p.t+=dt; if(p.t>=p.life)return false;
+      const a=Math.sin(Math.PI*p.t/p.life), s=p.s*(.6+.4*a);
+      ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.strokeStyle=`rgba(255,235,150,${a})`;
+      ctx.lineWidth=1.4*S+.2; ctx.lineCap='round'; ctx.beginPath();
+      ctx.moveTo(p.x-s,p.y); ctx.lineTo(p.x+s,p.y); ctx.moveTo(p.x,p.y-s); ctx.lineTo(p.x,p.y+s); ctx.stroke(); ctx.restore(); return true;}
+    case 'drift':{
+      p.age+=dt; p.x+=p.vx*dt;
+      if(p.x-p.R*2>SW)return false;
+      let out=0;
+      if(!p.owner.alive||p.owner.state==='returning'){p.out=(p.out||0)+dt*.9;out=p.out;if(out>=1)return false;}
+      const edge=clamp(Math.min((p.x+p.R*2)/(p.R*3),(SW+p.R*2-p.x)/(p.R*3)),0,1);
+      const a=p.a*edge*Math.min(1,p.age/1.2)*(1-out);
+      if(a>.01)drawPuffs(p.x,p.y,p.R,p.pal,a,p.t+p.age,1);
+      return true;}
+  }
+  return false;
+}
+function drawBolts(dt){
+  for(let i=B.length-1;i>=0;i--){
+    const b=B[i]; b.t+=dt;
+    if(b.t>=b.life){B.splice(i,1);continue;}
+    const a=(1-b.t/b.life)*(.6+.4*Math.random());
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.lineJoin='round'; ctx.lineCap='round';
+    for(const [pts,w] of [[b.pts,1],...b.branches.map(x=>[x,.55])]){
+      for(const [lw,col] of [[14,`rgba(150,170,255,${.25*a})`],[6,`rgba(200,215,255,${.6*a})`],[2.5,`rgba(255,255,255,${a})`]]){
+        ctx.lineWidth=lw*S*w; ctx.strokeStyle=col; ctx.beginPath();
+        pts.forEach((q,j)=>j?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+/* ====== КАРТИНКИ: полная и пустая, совмещённые по крышкам ====== */
+let imgA=null, imgB=null;
+function loadImg(src){return new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>res(null);im.src=src;});}
+
+function buildJarAssets(j){
+  const [x0,y0,x1,y1]=j.region, rw=x1-x0, rh=y1-y0;
+  // мягкая маска области (без ближних банок)
+  const m=document.createElement('canvas'); m.width=rw; m.height=rh;
+  const g=m.getContext('2d');
+  try{g.filter='blur(3px)';}catch(e){}
+  g.fillStyle='#fff'; rr(g,4,3,rw-8,rh-8,10); g.fill();
+  g.globalCompositeOperation='destination-out';
+  for(const fid of j.fronts){const f=byId(fid).body; g.fillRect(f[0]-x0,f[1]-y0,f[2],f[3]);}
+  g.filter='none';
+  j.mask=m;
+  // содержимое — кусок пустой картинки, подогнанный по крышке
+  if(imgB){
+    const [ax,ay,aw]=j.lid, [bx,by,bw]=j.bLid, s=aw/bw;
+    const c=document.createElement('canvas'); c.width=rw; c.height=rh;
+    const h=c.getContext('2d');
+    h.drawImage(imgB,(x0-ax)/s+bx,(y0-ay)/s+by,rw/s,rh/s,0,0,rw,rh);
+    h.globalCompositeOperation='destination-in'; h.drawImage(m,0,0);
+    j.content=c;
+  }
+  // спрайт крышки — вырезан из самой картинки
+  const [lx,ly,lw]=j.lid, lh=lw*.3, pad=4;
+  const sp=document.createElement('canvas'); sp.width=Math.round(lw+pad*2); sp.height=Math.round(lh+pad*2);
+  const k=sp.getContext('2d');
+  k.save(); rr(k,pad,pad,lw,lh,lh*.48); k.clip();
+  k.drawImage(imgA,lx-lw/2-pad,ly-lh/2-pad,sp.width,sp.height,0,0,sp.width,sp.height); k.restore();
+  sp.className='lidsp'; sp.style.left=((lx-lw/2-pad)/W0*100)+'%'; sp.style.top=((ly-lh/2-pad)/H0*100)+'%';
+  sp.style.width=(sp.width/W0*100)+'%'; sp.style.height=(sp.height/H0*100)+'%';
+  stage.appendChild(sp); j.sprite=sp;
+}
+
+/* «горлышко» (mouth) — рисуется прямо в сцене под крышкой-спрайтом */
+function paintMouth(j,p){
+  const [cx,cy,w]=j.lid, u=S, ux=cx*u, uy=cy*SY;
+  const ctxm=sctx; ctxm.save(); ctxm.globalAlpha=p;
+  const bw=w*.97*u, bh=w*.19*SY, bx=ux-bw/2, by=(cy-.045*w)*SY;
+  let g=ctxm.createLinearGradient(bx,0,bx+bw,0);
+  g.addColorStop(0,'#8fa9b5'); g.addColorStop(.15,'#d6e8ef'); g.addColorStop(.5,'#b9d1db'); g.addColorStop(.85,'#d6e8ef'); g.addColorStop(1,'#86a0ad');
+  ctxm.fillStyle=g; rr(ctxm,bx,by,bw,bh,bh*.5); ctxm.fill();
+  ctxm.strokeStyle='rgba(60,85,98,.55)'; ctxm.lineWidth=1.2*u; ctxm.stroke();
+  const ey=(cy-.04*w)*SY, rx=w*.5*u, ry=w*.105*SY;
+  g=ctxm.createRadialGradient(ux,ey,rx*.1,ux,ey,rx);
+  g.addColorStop(0,'#101b22'); g.addColorStop(.7,'#243743'); g.addColorStop(1,'#46606c');
+  ctxm.fillStyle=g; ctxm.beginPath(); ctxm.ellipse(ux,ey,rx,ry,0,0,TAU); ctxm.fill();
+  ctxm.strokeStyle='rgba(228,242,248,.95)'; ctxm.lineWidth=2.2*u; ctxm.stroke();
+  ctxm.restore();
+}
+function drawScene(dt){
+  sctx.clearRect(0,0,SW,SH);
+  if(imgA)sctx.drawImage(imgA,0,0,SW,SH);
+  for(const j of JARS){
+    const tR=j.rt, tM=j.mt;
+    j.rp=clamp(j.rp+Math.sign(tR-j.rp)*dt*2.5,0,1); if(Math.abs(tR-j.rp)<.02)j.rp=tR;
+    j.mp=clamp(j.mp+Math.sign(tM-j.mp)*dt*8,0,1);   if(Math.abs(tM-j.mp)<.02)j.mp=tM;
+    if(j.rp>.005&&j.mask){
+      const [x0,y0,x1,y1]=j.region, dx=x0*S, dy=y0*SY, dw=(x1-x0)*S, dh=(y1-y0)*SY;
+      sctx.save(); sctx.globalCompositeOperation='destination-out'; sctx.globalAlpha=j.rp; sctx.drawImage(j.mask,dx,dy,dw,dh); sctx.restore();
+      if(j.content){sctx.save(); sctx.globalAlpha=j.rp; sctx.drawImage(j.content,dx,dy,dw,dh); sctx.restore();}
+    }
+    if(j.mp>.005)paintMouth(j,j.mp);
+  }
+}
+
+/* ====== БАНКИ: клики, крышка, облако ====== */
+const pct=(v,t)=>(v/t*100)+'%';
+const cnt=document.getElementById('cnt'), tags=document.getElementById('tags');
+const openSet=new Set();
+function buildHits(){
+  for(const j of JARS){
+    Object.assign(j,{open:false,cloud:null,timers:[],rp:0,rt:0,mp:0,mt:0});
+    const [x,y,w,h]=j.body;
+    const hit=document.createElement('div'); hit.className='hit';
+    Object.assign(hit.style,{left:pct(x,W0),top:pct(y,H0),width:pct(w,W0),height:pct(h,H0)});
+    hit.addEventListener('click',()=>{ac();hint.style.opacity=0;j.open?closeJar(j):openJar(j);});
+    hit.addEventListener('mouseenter',()=>{tip.innerHTML=`<b>${j.short}</b><small>${j.open?'нажми, чтобы вернуть облако':'нажми, чтобы открутить крышку'}</small>`;tip.style.opacity=1;});
+    hit.addEventListener('mousemove',e=>{tip.style.left=(e.clientX+14)+'px';tip.style.top=(e.clientY-46)+'px';});
+    hit.addEventListener('mouseleave',()=>{tip.style.opacity=0;});
+    stage.insertBefore(hit,scn);
+    j.hit=hit;
+    if(DEBUG){
+      const r=document.createElement('div');r.className='dbg-r';const q=j.region;
+      Object.assign(r.style,{left:pct(q[0],W0),top:pct(q[1],H0),width:pct(q[2]-q[0],W0),height:pct(q[3]-q[1],H0)});stage.appendChild(r);
+      const l=document.createElement('div');l.className='dbg-l';
+      Object.assign(l.style,{left:pct(j.lid[0]-j.lid[2]/2,W0),top:pct(j.lid[1]-j.lid[2]*.15,H0),width:pct(j.lid[2],W0),height:pct(j.lid[2]*.3,H0)});stage.appendChild(l);
+    }
+  }
+}
+function later(j,ms,fn){const t=setTimeout(fn,ms);j.timers.push(t);}
+function clearTimers(j){j.timers.forEach(clearTimeout);j.timers=[];}
+function lidPx(j){return j.lid[2]*S;}
+
+function openJar(j){
+  j.open=true; clearTimers(j); popSnd(); lidSnd(true);
+  j.rt=1; j.mt=1;
+  j.sprite.getAnimations().forEach(a=>a.cancel());
+  const lw=lidPx(j);
+  j.sprite.animate([
+    {opacity:1,transform:'translate(0,0) rotate(0deg)',offset:0},
+    {opacity:1,transform:`translate(${-lw*.02}px,${-lw*.06}px) rotate(-7deg)`,offset:.15},
+    {opacity:1,transform:`translate(${lw*.02}px,${-lw*.12}px) rotate(6deg)`,offset:.3},
+    {opacity:1,transform:`translate(${-lw*.02}px,${-lw*.2}px) rotate(-9deg)`,offset:.45},
+    {opacity:.9,transform:`translate(${lw*.15}px,${-lw*.5}px) rotate(60deg)`,offset:.7},
+    {opacity:0,transform:`translate(${lw*.7}px,${-lw*1.0}px) rotate(220deg)`,offset:1}
+  ],{duration:1000,easing:'ease-out',fill:'forwards'});
+  later(j,450,()=>{
+    if(!j.open)return;
+    const mx=j.lid[0]*S, my=j.lid[1]*SY;
+    for(let i=0;i<12;i++)P.push({k:'smoke',x:mx+rnd(-.3,.3)*lidPx(j),y:my,vx:rnd(-20,20)*S,vy:-rnd(20,60)*S,
+      r:10*S,gr:22*S,t:0,life:rnd(.5,.9),a:.55,col:[235,240,245]});
+    if(j.cloud&&clouds.includes(j.cloud)){j.cloud.state='rising';}
+    else{
+      const fx=EFFECTS[j.type];
+      const c={jar:j,cfg:Object.assign({},fx,{}),pal:j.pal,k:0,e:0,t:Math.random()*10,state:'rising',acc:0,glow:0,alive:true,
+        drift:rnd(-40,40),x:0,y:0,RR:1};
+      j.cloud=c; clouds.push(c);
+    }
+  });
+  openSet.add(j.id); updateCard(j); syncUI();
+}
+function closeJar(j){
+  j.open=false; clearTimers(j); lidSnd(false);
+  if(j.cloud)j.cloud.state='returning';
+  later(j,900,()=>{
+    if(j.open)return;
+    j.sprite.getAnimations().forEach(a=>a.cancel());
+    const lw=lidPx(j);
+    j.sprite.animate([
+      {opacity:0,transform:`translate(${lw*.7}px,${-lw}px) rotate(160deg)`,offset:0},
+      {opacity:1,transform:'translate(0,-4px) rotate(10deg)',offset:.7},
+      {opacity:1,transform:'translate(0,0) rotate(0deg)',offset:1}
+    ],{duration:600,easing:'ease-in'});
+  });
+  later(j,1500,()=>{if(!j.open){j.rt=0;j.mt=0;}});
+  openSet.delete(j.id); syncUI();
+}
+function closeAll(){JARS.forEach(j=>{if(j.open)closeJar(j);});resetCard();}
+document.getElementById('closeAll').onclick=closeAll;
+
+const cBadge=document.getElementById('badge'), cAlt=document.getElementById('alt'), cTitle=document.getElementById('ctitle'),
+      cDesc=document.getElementById('cdesc'), cTemp=document.getElementById('ctemp'), cPrec=document.getElementById('cprec');
+function updateCard(j){
+  cBadge.textContent=j.badge; cAlt.textContent=j.altitude; cTitle.textContent=j.name;
+  cDesc.textContent=j.desc; cTemp.textContent=j.temp; cPrec.textContent=j.precip;
+}
+function resetCard(){
+  cBadge.textContent='метеостанция готова'; cAlt.textContent='Высота: 0–12 км';
+  cTitle.textContent='лаборатория облаков — выбери любую банку';
+  cDesc.textContent='Все облака собраны обратно в банки. Нажми на любую крышку, чтобы снова выпустить погодное явление!';
+  cTemp.textContent='+18 °C (норма)'; cPrec.textContent='штиль, без осадков';
+}
+function syncUI(){
+  cnt.textContent=`открыто: ${openSet.size} из ${JARS.length}`;
+  tags.innerHTML='';
+  JARS.forEach(j=>{ if(!j.open)return;
+    const b=document.createElement('button'); b.type='button'; b.textContent='✕ '+j.short; b.title='Закрыть эту банку';
+    b.onclick=()=>{closeJar(j);}; tags.appendChild(b); });
+  if(!openSet.size&&false)resetCard();
+}
+
+/* ====== ГЛАВНЫЙ ЦИКЛ ====== */
+let last=performance.now();
+function frame(now){
+  DT=Math.min(.05,(now-last)/1000); last=now; const dt=DT;
+  drawScene(dt);
+  ctx.clearRect(0,0,SW,SH);
+  let dark=0, sunV=0;
+
+  for(const c of clouds){
+    const cfg=c.cfg, j=c.jar;
+    c.t+=dt;
+    if(c.state==='rising'){c.k=Math.min(1,c.k+dt/1.8);if(c.k>=1)c.state='active';}
+    else if(c.state==='returning'){c.k=Math.max(0,c.k-dt/1.4);}
+    const e=ease(c.k); c.e=e;
+    c.RR0=j.R*S;
+    const rg=j.region, sR=(rg[2]-rg[0])*.34*S;
+    c.mx=((rg[0]+rg[2])/2)*S; c.my=(rg[1]+(rg[3]-rg[1])*.42)*SY;
+    c.hx=clamp(c.mx+c.drift*S,c.RR0*1.1,SW-c.RR0*1.1);
+    c.hy=Math.max(c.RR0*.8+8*S,j.lid[1]*SY-210*SY);
+    c.x=lerp(c.mx,c.hx,e)+Math.sin(c.t*.6)*7*S*e;
+    c.y=lerp(c.my,c.hy,e)+Math.sin(c.t*.9)*5*S*e;
+    c.RR=lerp(sR,c.RR0,e);
+    c.glow=Math.max(0,c.glow-dt*3);
+
+    if(c.state==='rising'&&c.k<.9&&Math.random()<dt*35)
+      P.push({k:'smoke',x:c.x+rnd(-.3,.3)*c.RR,y:c.y+c.RR*.25,vx:rnd(-10,10)*S,vy:-rnd(5,25)*S,
+        r:c.RR*rnd(.25,.45),gr:c.RR*.6,t:0,life:rnd(.6,1.1),a:.5,col:c.pal[0]});
+
+    const em=c.state==='active'?1:(c.state==='rising'&&c.k>.7?(c.k-.7)/.3:0);
+    c.acc+=cfg.rate*em*dt;
+    while(c.acc>=1){c.acc-=1;cfg.spawn(c);}
+    if(cfg.tick)cfg.tick(c,dt,em);
+
+    if(cfg.dark)dark=Math.max(dark,e*cfg.dark);
+    if(cfg.sun)sunV=Math.max(sunV,e*cfg.sun);
+  }
+  for(const c of clouds)if(c.cfg.bg)c.cfg.bg(c);
+  for(let i=P.length-1;i>=0;i--){if(!stepParticle(P[i],dt)){P[i]=P[P.length-1];P.pop();}}
+  drawBolts(dt);
+  for(const c of clouds)drawCloud(c);
+
+  if(flash>.01){ctx.fillStyle=`rgba(${flashCol},${flash})`;ctx.fillRect(0,0,SW,SH);flash-=dt*2.2;}else flash=0;
+  if(shake>.001){const a=shake*30;stage.style.transform=`translate(${rnd(-a,a)}px,${rnd(-a,a)}px)`;shake=Math.max(0,shake-dt*1.2);}
+  else if(stage.style.transform){stage.style.transform='';}
+  dimEl.style.opacity=dark; sunEl.style.opacity=sunV;
+
+  for(let i=clouds.length-1;i>=0;i--){
+    const c=clouds[i];
+    if(c.state==='returning'&&c.k<=0){c.alive=false;if(c.jar.cloud===c)c.jar.cloud=null;clouds.splice(i,1);}
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ====== ЗАПУСК ====== */
+(async function init(){
+  const [a,b]=await Promise.all([loadImg(IMG_FULL),loadImg(IMG_EMPTY)]);
+  if(!a){warn.hidden=false;warn.textContent='Не найден файл «'+IMG_FULL+'». Положи картинку рядом с этим html или поправь IMG_FULL в начале скрипта.';}
+  imgA=a; imgB=b;
+  if(a){natW=a.naturalWidth;natH=a.naturalHeight;resize();}
+  if(!b&&a){console.warn('Нет '+IMG_EMPTY+': банки не будут «пустеть» при открытии');}
+  buildHits();
+  if(a)JARS.forEach(buildJarAssets);
+  requestAnimationFrame(frame);
+  setTimeout(()=>{hint.style.opacity=0;},9000);
+})();
+</script>
+</body>
+</html>
