@@ -98,7 +98,7 @@
  <div class="background-layer"></div>
 
     <div class="content">
-        <p>Фон — nature.png</p>
+       
     </div>
 <div id="stage">
   <canvas id="scene"></canvas>
